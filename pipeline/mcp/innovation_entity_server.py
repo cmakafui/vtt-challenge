@@ -23,13 +23,23 @@ try:
     from neo4j import GraphDatabase
     from contextlib import asynccontextmanager
     from dataclasses import dataclass
-    from typing import List, Dict, Any, Optional, Literal
-    from pydantic import BaseModel, Field
+    from typing import List, Dict, Any, Optional
     import os
     import json
     from collections.abc import AsyncIterator
     import hashlib
     from openai import AzureOpenAI
+    from models.schemas import (
+        MentionRecord,
+        InnovationResponse,
+        OrganizationResponse,
+        InvolvementResponse,
+        SimilarityResponse,
+        MergeInnovationResponse,
+        MergeOrganizationResponse,
+        TimelineMention,
+        TimelineResponse,
+    )
 
 except Exception as e:
     print(f"ERROR DURING INITIALIZATION: {str(e)}", file=sys.stderr)
@@ -90,7 +100,7 @@ class MemgraphContext:
 
     driver: GraphDatabase.driver
     embeddings_client: AzureOpenAIEmbeddings
-    embedding_dimension: int = 2048
+    embedding_dimension: int = 2048  # Azure OpenAI text-embedding-ada-002 dimension
     vector_index_name: str = "innovation_embeddings"
     innovation_label: str = "Innovation"
     organization_label: str = "Organization"
@@ -169,93 +179,6 @@ async def memgraph_lifespan(server: FastMCP) -> AsyncIterator[MemgraphContext]:
                 logger.info("Memgraph connection closed")
             except Exception as e:
                 logger.error(f"Error closing Memgraph connection: {str(e)}")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# PYDANTIC MODELS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-class MentionRecord(BaseModel):
-    """Model representing an innovation mention with full provenance."""
-
-    mention_unique_id: str
-    original_name: str
-    source_url: Optional[str] = None
-    source_doc_id: str
-    dataset_origin: str
-    publication_date: Optional[str] = None
-    role_in_mention: Optional[str] = None
-    relationship_description_in_mention: Optional[str] = None
-    original_text: Optional[str] = None
-    confidence: float = 1.0
-
-
-class Innovation(BaseModel):
-    """Model representing a canonical innovation entity."""
-
-    innovation_id: str
-    canonical_name: str
-    aggregated_description: Optional[str] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    labels: Optional[List[str]] = None
-
-
-class Organization(BaseModel):
-    """Model representing an organization entity."""
-
-    vat_id: str
-    canonical_name: str
-    aliases: Optional[List[str]] = Field(default_factory=list)
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-
-
-class InnovationResponse(BaseModel):
-    """Response model for innovation operations."""
-
-    success: bool
-    error: Optional[str] = None
-    innovation_id: Optional[str] = None
-    canonical_name: Optional[str] = None
-    aggregated_description: Optional[str] = None
-    created: Optional[bool] = None
-    similarity_matches: Optional[List[Dict[str, Any]]] = None
-
-
-class OrganizationResponse(BaseModel):
-    """Response model for organization operations."""
-
-    success: bool
-    error: Optional[str] = None
-    vat_id: Optional[str] = None
-    canonical_name: Optional[str] = None
-    aliases: Optional[List[str]] = None
-    found: Optional[bool] = None
-
-
-class InvolvementResponse(BaseModel):
-    """Response model for involvement operations."""
-
-    success: bool
-    error: Optional[str] = None
-    fingerprint: Optional[str] = None
-    org_vat_id: Optional[str] = None
-    innovation_id: Optional[str] = None
-    org_name: Optional[str] = None
-    innovation_name: Optional[str] = None
-    primary_role: Optional[str] = None
-    status: Optional[Literal["created", "updated", "duplicate"]] = None
-    mentions_count: Optional[int] = None
-
-
-class SimilarityResponse(BaseModel):
-    """Response model for similarity search."""
-
-    query: str
-    results: List[Dict[str, Any]] = Field(default_factory=list)
-    count: int = 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -346,6 +269,7 @@ def resolve_or_create_canonical_innovation(
             """
             CALL vector_search.search($index_name, 10, $embedding)
             YIELD node, similarity
+            WITH node, similarity
             WHERE similarity >= $threshold
             RETURN node.innovation_id as innovation_id, 
                    node.canonical_name as canonical_name,
@@ -683,6 +607,7 @@ def search_similar_innovations(
             """
             CALL vector_search.search($index_name, $limit, $embedding)
             YIELD node, similarity
+            WITH node, similarity
             WHERE similarity >= $threshold
             RETURN node.innovation_id as innovation_id,
                    node.canonical_name as canonical_name,
@@ -761,6 +686,353 @@ def get_random_organization(ctx: Context, limit: int = 1) -> OrganizationRespons
 
         return OrganizationResponse(
             success=False, error="No organizations found in database"
+        )
+
+
+@mcp.tool()
+def find_duplicate_innovations(ctx: Context) -> Dict[str, Any]:
+    """Find innovation nodes with duplicate names."""
+    memgraph = ctx.request_context.lifespan_context
+
+    with memgraph.driver.session() as session:
+        result = session.run("""
+            MATCH (i:Innovation)
+            WHERE i.canonical_name IS NOT NULL
+            WITH i.canonical_name AS name, collect(i) AS innovations, count(*) AS count
+            WHERE count > 1
+            RETURN name, count, innovations
+        """)
+
+        duplicates = []
+        for record in result:
+            name = record["name"]
+            count = record["count"]
+            innovations = record["innovations"]
+
+            innovation_details = [
+                {
+                    "innovation_id": innovation["innovation_id"],
+                    "canonical_name": innovation["canonical_name"],
+                    "aggregated_description": innovation.get(
+                        "aggregated_description", ""
+                    )[:100]
+                    + "...",
+                }
+                for innovation in innovations
+            ]
+
+            duplicates.append(
+                {"name": name, "count": count, "innovations": innovation_details}
+            )
+
+        return {"total_duplicate_groups": len(duplicates), "duplicates": duplicates}
+
+
+@mcp.tool()
+def find_duplicate_organizations(ctx: Context) -> Dict[str, Any]:
+    """Find organization nodes with duplicate names."""
+    memgraph = ctx.request_context.lifespan_context
+
+    with memgraph.driver.session() as session:
+        result = session.run("""
+            MATCH (o:Organization)
+            WHERE o.canonical_name IS NOT NULL
+            WITH o.canonical_name AS name, collect(o) AS organizations, count(*) AS count
+            WHERE count > 1
+            RETURN name, count, organizations
+        """)
+
+        duplicates = []
+        for record in result:
+            name = record["name"]
+            count = record["count"]
+            organizations = record["organizations"]
+
+            org_details = [
+                {
+                    "vat_id": org["vat_id"],
+                    "canonical_name": org["canonical_name"],
+                    "aliases": org.get("aliases", []),
+                }
+                for org in organizations
+            ]
+
+            duplicates.append(
+                {"name": name, "count": count, "organizations": org_details}
+            )
+
+        return {"total_duplicate_groups": len(duplicates), "duplicates": duplicates}
+
+
+@mcp.tool()
+def merge_innovations(
+    ctx: Context, source_innovation_id: str, target_innovation_id: str
+) -> MergeInnovationResponse:
+    """Merge source innovation into target innovation. Source will be deleted."""
+    memgraph = ctx.request_context.lifespan_context
+
+    with memgraph.driver.session() as session:
+        # Verify both exist
+        verification = session.run(
+            """
+            MATCH (source:Innovation {innovation_id: $source_id})
+            MATCH (target:Innovation {innovation_id: $target_id})
+            RETURN source.canonical_name as source_name, target.canonical_name as target_name
+        """,
+            {"source_id": source_innovation_id, "target_id": target_innovation_id},
+        )
+
+        verification_record = verification.single()
+        if not verification_record:
+            return MergeInnovationResponse(
+                success=False, error="One or both innovations not found"
+            )
+
+        source_name = verification_record["source_name"]
+        target_name = verification_record["target_name"]
+
+        # Merge name variations
+        session.run(
+            """
+            MATCH (source:Innovation {innovation_id: $source_id})
+            MATCH (target:Innovation {innovation_id: $target_id})
+            SET target.name_variations = target.name_variations + source.name_variations,
+                target.updated_at = datetime()
+        """,
+            {"source_id": source_innovation_id, "target_id": target_innovation_id},
+        )
+
+        # Transfer relationships from organizations
+        session.run(
+            """
+            MATCH (source:Innovation {innovation_id: $source_id})
+            MATCH (target:Innovation {innovation_id: $target_id})
+            MATCH (org:Organization)-[r:INVOLVED_IN]->(source)
+            
+            // Create new relationship to target
+            CREATE (org)-[newRel:INVOLVED_IN {
+                fingerprint: replace(r.fingerprint, source.innovation_id, target.innovation_id),
+                primary_role: r.primary_role,
+                mentions: r.mentions,
+                created_at: r.created_at,
+                updated_at: datetime()
+            }]->(target)
+        """,
+            {"source_id": source_innovation_id, "target_id": target_innovation_id},
+        )
+
+        # Delete source and its relationships
+        session.run(
+            """
+            MATCH (source:Innovation {innovation_id: $source_id})
+            DETACH DELETE source
+        """,
+            {"source_id": source_innovation_id},
+        )
+
+        return MergeInnovationResponse(
+            success=True,
+            innovation_id=target_innovation_id,
+            canonical_name=target_name,
+            merged_from=source_name,
+            merged_into=target_name,
+        )
+
+
+@mcp.tool()
+def merge_organizations(
+    ctx: Context, source_vat_id: str, target_vat_id: str
+) -> MergeOrganizationResponse:
+    """Merge source organization into target organization. Source will be deleted."""
+    memgraph = ctx.request_context.lifespan_context
+
+    with memgraph.driver.session() as session:
+        # Verify both exist
+        verification = session.run(
+            """
+            MATCH (source:Organization {vat_id: $source_id})
+            MATCH (target:Organization {vat_id: $target_id})
+            RETURN source.canonical_name as source_name, target.canonical_name as target_name
+        """,
+            {"source_id": source_vat_id, "target_id": target_vat_id},
+        )
+
+        verification_record = verification.single()
+        if not verification_record:
+            return MergeOrganizationResponse(
+                success=False, error="One or both organizations not found"
+            )
+
+        source_name = verification_record["source_name"]
+        target_name = verification_record["target_name"]
+
+        # Merge aliases
+        session.run(
+            """
+            MATCH (source:Organization {vat_id: $source_id})
+            MATCH (target:Organization {vat_id: $target_id})
+            SET target.aliases = target.aliases + source.aliases,
+                target.updated_at = datetime()
+        """,
+            {"source_id": source_vat_id, "target_id": target_vat_id},
+        )
+
+        # Transfer relationships to innovations
+        session.run(
+            """
+            MATCH (source:Organization {vat_id: $source_id})
+            MATCH (target:Organization {vat_id: $target_id})
+            MATCH (source)-[r:INVOLVED_IN]->(innovation:Innovation)
+            
+            // Create new relationship from target
+            CREATE (target)-[newRel:INVOLVED_IN {
+                fingerprint: replace(r.fingerprint, source.vat_id, target.vat_id),
+                primary_role: r.primary_role,
+                mentions: r.mentions,
+                created_at: r.created_at,
+                updated_at: datetime()
+            }]->(innovation)
+        """,
+            {"source_id": source_vat_id, "target_id": target_vat_id},
+        )
+
+        # Delete source and its relationships
+        session.run(
+            """
+            MATCH (source:Organization {vat_id: $source_id})
+            DETACH DELETE source
+        """,
+            {"source_id": source_vat_id},
+        )
+
+        return MergeOrganizationResponse(
+            success=True,
+            vat_id=target_vat_id,
+            canonical_name=target_name,
+            merged_from=source_name,
+            merged_into=target_name,
+        )
+
+
+@mcp.tool()
+def get_innovation_timeline(ctx: Context, innovation_id: str) -> TimelineResponse:
+    """Get chronological timeline of all mentions for a specific innovation.
+
+    This tool retrieves all mentions of an innovation from relationships with
+    organizations, sorted by publication date to show the evolution and
+    development of the innovation over time.
+
+    Args:
+        innovation_id: The ID of the innovation to get timeline for
+
+    Returns:
+        TimelineResponse containing chronologically sorted mentions with
+        organization context and date range information.
+    """
+    memgraph = ctx.request_context.lifespan_context
+
+    with memgraph.driver.session() as session:
+        # First, verify the innovation exists and get its details
+        innovation_check = session.run(
+            """
+            MATCH (i:Innovation {innovation_id: $innovation_id})
+            RETURN i.innovation_id as innovation_id,
+                   i.canonical_name as canonical_name,
+                   i.aggregated_description as aggregated_description,
+                   i.created_at as created_at,
+                   i.updated_at as updated_at
+        """,
+            {"innovation_id": innovation_id},
+        )
+
+        innovation_record = innovation_check.single()
+        if not innovation_record:
+            return TimelineResponse(
+                success=False, error=f"Innovation with ID '{innovation_id}' not found"
+            )
+
+        # Get all mentions from relationships
+        mentions_query = session.run(
+            """
+            MATCH (org:Organization)-[r:INVOLVED_IN]->(i:Innovation {innovation_id: $innovation_id})
+            RETURN org.vat_id as org_vat_id,
+                   org.canonical_name as org_name,
+                   r.mentions as mentions
+        """,
+            {"innovation_id": innovation_id},
+        )
+
+        # Collect all mentions with organization context
+        all_mentions = []
+        organizations_involved = set()
+
+        for record in mentions_query:
+            org_vat_id = record["org_vat_id"]
+            org_name = record["org_name"]
+            mentions = record["mentions"] or []
+
+            organizations_involved.add((org_vat_id, org_name))
+
+            for mention in mentions:
+                timeline_mention = TimelineMention(
+                    mention_unique_id=mention.get("mention_unique_id", ""),
+                    publication_date=mention.get("publication_date"),
+                    original_name=mention.get("original_name", ""),
+                    source_url=mention.get("source_url"),
+                    source_doc_id=mention.get("source_doc_id", ""),
+                    dataset_origin=mention.get("dataset_origin", ""),
+                    role_in_mention=mention.get("role_in_mention"),
+                    relationship_description_in_mention=mention.get(
+                        "relationship_description_in_mention"
+                    ),
+                    original_text=mention.get("original_text"),
+                    confidence=mention.get("confidence", 1.0),
+                    organization_vat_id=org_vat_id,
+                    organization_name=org_name,
+                )
+                all_mentions.append(timeline_mention)
+
+        # Sort mentions by publication date (handle None dates)
+        def sort_key(mention):
+            if mention.publication_date:
+                try:
+                    # Try to parse date for proper sorting
+                    from datetime import datetime
+
+                    return datetime.fromisoformat(
+                        mention.publication_date.replace("Z", "+00:00")
+                    )
+                except:
+                    # If parsing fails, sort lexicographically
+                    return mention.publication_date
+            else:
+                # Put undated mentions at the end
+                return "9999-12-31"
+
+        sorted_mentions = sorted(all_mentions, key=sort_key)
+
+        # Calculate date range
+        date_range = None
+        dated_mentions = [m for m in sorted_mentions if m.publication_date]
+        if dated_mentions:
+            earliest = dated_mentions[0].publication_date
+            latest = dated_mentions[-1].publication_date
+            date_range = {"earliest": earliest, "latest": latest}
+
+        # Prepare organizations list
+        orgs_list = [
+            {"vat_id": vat_id, "name": name} for vat_id, name in organizations_involved
+        ]
+
+        return TimelineResponse(
+            success=True,
+            innovation_id=innovation_record["innovation_id"],
+            canonical_name=innovation_record["canonical_name"],
+            aggregated_description=innovation_record["aggregated_description"],
+            total_mentions=len(sorted_mentions),
+            date_range=date_range,
+            timeline=sorted_mentions,
+            organizations_involved=orgs_list,
         )
 
 

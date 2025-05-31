@@ -77,6 +77,11 @@ Create `azure_config.json` with your Azure OpenAI credentials:
 - `add_mention_to_link` - Link organizations to innovations with provenance
 - `search_similar_innovations` - Semantic search using embeddings
 - `get_random_organization` - Retrieve random organizations for testing
+- `find_duplicate_innovations` - Find innovation nodes with duplicate names
+- `find_duplicate_organizations` - Find organization nodes with duplicate names
+- `merge_innovations` - Merge source innovation into target innovation
+- `merge_organizations` - Merge source organization into target organization
+- `get_innovation_timeline` - Get chronological timeline of all mentions for a specific innovation
 
 ## Services
 
