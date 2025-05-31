@@ -1,0 +1,12 @@
+[project]
+name = "vtt-challenge"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=2.5.2",
+    "neo4j>=5.28.1",
+    "openai>=1.82.1",
+    "pydantic>=2.11.5",
+]
