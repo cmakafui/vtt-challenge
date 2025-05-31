@@ -1,0 +1,32 @@
+services:
+  memgraph:
+    image: memgraph/memgraph-mage:latest
+    container_name: memgraph-mage
+    ports:
+      - "7687:7687"
+    restart: unless-stopped
+    command: ["--log-level=TRACE"]
+    volumes:
+      - memgraph_mg_lib:/var/lib/memgraph
+      - memgraph_mg_log:/var/log/memgraph
+      - memgraph_mg_etc:/etc/memgraph
+
+  lab:
+    image: memgraph/lab:latest
+    container_name: memgraph-lab
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - memgraph
+    environment:
+      - QUICK_CONNECT_MG_HOST=memgraph
+      - QUICK_CONNECT_MG_PORT=7687
+
+volumes:
+  memgraph_mg_lib:
+    name: memgraph_mg_lib
+  memgraph_mg_log:
+    name: memgraph_mg_log
+  memgraph_mg_etc:
+    name: memgraph_mg_etc
