@@ -277,18 +277,18 @@ def load_original_context_data(
 
 def setup_embedding_client(model: str) -> AzureOpenAIEmbeddings:
     """Setup and test AzureOpenAIEmbeddings client connection"""
-    config_file = Path('azure_config.json')
+    config_file = Path("azure_config.json")
     config = json.loads(config_file.read_text())["gpt-4.1-mini"]
 
     try:
         client = AzureOpenAIEmbeddings(
             model=model,
-            api_key=config['api_key'],
-            api_version=config['api_version'],
-            azure_endpoint=config['api_base'],
-            dimensions=1024
+            api_key=config["api_key"],
+            api_version=config["api_version"],
+            azure_endpoint=config["api_base"],
+            dimensions=1024,
         )
-        _ = client.embed_query('test')
+        _ = client.embed_query("test")
         return client
     except Exception as e:
         console.print(f"[red]❌ Failed to connect to Ollama: {e}[/red]")
@@ -753,7 +753,9 @@ def analyze(
     vtt_csv_path: str = typer.Option(
         "data/dataframes/comp_mentions_vtt_domain.csv", help="VTT domain CSV file"
     ),
-    embedding_model: str = typer.Option("text-embedding-3-large", help="Embedding model"),
+    embedding_model: str = typer.Option(
+        "text-embedding-3-large", help="Embedding model"
+    ),
     similarity_threshold: float = typer.Option(
         0.80, help="Cosine similarity threshold"
     ),
