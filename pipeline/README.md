@@ -14,7 +14,7 @@ This fragmentation obscures true collaboration patterns and innovation portfolio
 
 ## The Solution: Three-Stage Pipeline
 
-### Stage 1: Ambiguity Analysis (`scripts/ambiguity_analysis.py`)
+### Stage 1: Ambiguity Analysis (`scripts/innovations_analysis.py`)
 
 **Purpose:** Identify potential duplicate innovation mentions using semantic similarity
 

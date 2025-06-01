@@ -304,7 +304,7 @@ Novel application of MCP for LLM-graph database interaction, enabling complex mu
 ```
 vtt-challenge/
 ├── scripts/
-│   ├── ambiguity_analysis.py      # FAISS duplicate detection
+│   ├── innovations_analysis.py      # FAISS duplicate detection
 │   └── ingest_entities.py         # High-performance graph loading
 ├── agents/
 │   └── innovation-curator-agent.ts # LLM curation agent
