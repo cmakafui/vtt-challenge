@@ -44,6 +44,9 @@ bun run agents/innovation-curator-agent.ts results.json
 - Enables semantic discovery and accurate collaboration analysis
 - Production-ready automated pipeline replacing manual processes
 
+https://github.com/user-attachments/assets/f7600076-04a1-4dc7-8930-84706030be01
+
+
 ## Documentation
 
 📋 **[Complete Solution Details](docs/SOLUTION.md)** - Full technical architecture and hackathon submission
