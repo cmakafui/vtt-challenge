@@ -46,9 +46,11 @@ bun run agents/innovation-curator-agent.ts results.json
 
 ## Documentation
 
-📋 **[Complete Solution Details](docs/solution.md)** - Full technical architecture and hackathon submission
+📋 **[Complete Solution Details](docs/SOLUTION.md)** - Full technical architecture and hackathon submission
 
-🚀 **[Pipeline Usage Guide](README.md)** - Detailed setup and usage instructions
+🚀 **[Pipeline Usage Guide](pipeline/README.md)** - Detailed setup and usage instructions
+
+📋 **[Jupyter Notebook EDA](notebooks/candidates_eda.ipynb)** - Exploratory Data Analysis of the candidates
 
 ## Services
 
