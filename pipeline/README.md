@@ -28,32 +28,41 @@ This fragmentation obscures true collaboration patterns and innovation portfolio
 
 ```bash
 # Run full analysis
-uv run python scripts/ambiguity_analysis.py analyze \
+uv run python scripts/innovations_analysis.py analyze \
     --vtt-data-dir "data/graph_docs_vtt_domain/" \
     --partner-data-dir "data/graph_docs_partners/" \
     --similarity-threshold 0.80 \
     --batch-size 50
 
 # View tool information
-uv run python scripts/ambiguity_analysis.py info
+uv run python scripts/innovations_analysis.py info
 ```
 
-### Stage 2: MCP Server (`mcp/innovation_entity_server.py`)
+### Stage 2: LLM Agent + MCP Server (`agents/innovation-curator-agent.ts`)
 
-**Purpose:** Intelligent graph curation and canonical entity management
+**Purpose:** Intelligent disambiguation using LLM reasoning with MCP graph operations
 
-**Core Tools:**
+**LLM Agent:**
+
+- Analyzes candidate pairs using GPT-4.1 with rich context
+- Makes SAME/DIFFERENT decisions with detailed reasoning
+- Orchestrates MCP tools for graph updates
+- Tracks decisions in JSONL format for audit trails
+
+**MCP Server Tools:**
 
 - `resolve_or_create_canonical_innovation` - Smart innovation entity resolution
 - `resolve_or_create_organization` - Organization management by VAT ID
 - `add_mention_to_link` - Link organizations to innovations with full provenance
 - `search_similar_innovations` - Semantic search using embeddings
 - `merge_innovations` - Consolidate duplicate innovations
-- `get_innovation_timeline` - Track innovation mention history
 
 ```bash
 # Start MCP server
 uv run fastmcp run mcp/innovation_entity_server.py --transport sse --port 9000
+
+# Run LLM curation agent
+bun run agents/innovation-curator-agent.ts duplicates.json
 ```
 
 ### Stage 3: Entity Ingestion (`scripts/ingest_entities.py`)
@@ -82,8 +91,14 @@ uv run python scripts/ingest_entities.py ingest \
 # Install uv if needed
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Sync dependencies
+# Install Bun for the LLM agent
+curl -fsSL https://bun.sh/install | bash
+
+# Sync Python dependencies
 uv sync
+
+# Install TypeScript agent dependencies
+bun install
 ```
 
 ### 2. Setup Environment
@@ -94,8 +109,8 @@ export MEMGRAPH_HOST="bolt://localhost:7687"
 
 # Azure OpenAI Configuration
 export AZURE_CONFIG_PATH="/path/to/azure_config.json"
-export AZURE_MODEL_KEY="gpt-4o-mini"
-export EMBEDDING_DIMENSION="2048"
+export AZURE_MODEL_KEY="gpt-4.1-mini"
+export EMBEDDING_DIMENSION="1024"
 
 # MCP Server Configuration
 export FASTMCP_SERVER_PORT="9000"
@@ -148,6 +163,16 @@ The pipeline transforms fragmented innovation mentions into a clean canonical kn
 - **Memgraph**: Graph database at `localhost:7687`
 - **Memgraph Lab**: Web UI at `http://localhost:3000`
 - **MCP Server**: Entity management at `localhost:9000`
+
+## Key Dependencies
+
+- `fastmcp` - MCP server framework
+- `openai` - Azure OpenAI client
+- `faiss-cpu` - Similarity search
+- `neo4j` - Memgraph driver
+- `pandas` - Data processing
+- `typer` - CLI framework
+- `rich` - Terminal UI
 
 ## Data Requirements
 
